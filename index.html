@@ -1,0 +1,276 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>IPTV Player</title>
+
+<script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
+
+<style>
+:root{
+  --bg:#0b0f14;
+  --card:#121826;
+  --accent:#00d4ff;
+  --text:#eaf2ff;
+  --muted:#94a3b8;
+}
+
+body{
+  margin:0;
+  font-family: system-ui;
+  background:var(--bg);
+  color:var(--text);
+}
+
+header{
+  display:flex;
+  justify-content:space-between;
+  align-items:center;
+  padding:10px;
+  flex-wrap:wrap;
+  border-bottom:1px solid rgba(255,255,255,0.1);
+}
+
+.brand{color:var(--accent);font-weight:bold;}
+
+nav{
+  display:flex;
+  gap:6px;
+}
+
+nav button{
+  background:none;
+  border:1px solid rgba(255,255,255,0.2);
+  color:white;
+  padding:6px 10px;
+  border-radius:8px;
+  cursor:pointer;
+}
+
+.player{
+  width:100%;
+  aspect-ratio:16/9;
+  background:black;
+  position:relative;
+}
+
+video{
+  width:100%;
+  height:100%;
+  object-fit:cover;
+}
+
+.label{
+  position:absolute;
+  top:8px;
+  left:8px;
+  background:rgba(0,0,0,0.6);
+  padding:4px 8px;
+  border-radius:6px;
+  font-size:12px;
+}
+
+.grid{
+  display:grid;
+  grid-template-columns:repeat(auto-fill,minmax(80px,1fr));
+  gap:10px;
+  padding:10px;
+}
+
+.logo{
+  background:var(--card);
+  padding:8px;
+  border-radius:10px;
+  text-align:center;
+  cursor:pointer;
+}
+
+.logo img{
+  width:100%;
+  height:50px;
+  object-fit:contain;
+}
+
+.logo span{
+  font-size:11px;
+  color:var(--muted);
+}
+
+.section{display:none;}
+.active{display:block;}
+
+.panel{padding:20px;}
+</style>
+</head>
+
+<body>
+
+<header>
+  <div class="brand">📺 IPTV</div>
+
+  <nav>
+    <button onclick="show('home')">Home</button>
+    <button onclick="show('iptv')">IPTV Link</button>
+    <button onclick="show('radio')">Radio IP</button>
+    <button onclick="show('about')">About</button>
+  </nav>
+
+  <div>
+    <button onclick="upload.click()">Upload</button>
+    <button onclick="goFull()">Full</button>
+    <button onclick="pip()">PiP</button>
+  </div>
+</header>
+
+<!-- HOME -->
+<div id="home" class="section active">
+  <div class="player">
+    <div class="label" id="label">Loading...</div>
+    <video id="video" controls autoplay></video>
+  </div>
+  <div id="grid" class="grid"></div>
+</div>
+
+<!-- IPTV -->
+<div id="iptv" class="section">
+  <div class="panel">
+    <h3>IPTV Playlist</h3>
+    <p>Default: iptv.m3u</p>
+  </div>
+</div>
+
+<!-- RADIO -->
+<div id="radio" class="section">
+  <div class="panel">
+    <input id="radioUrl" placeholder="Radio URL..." style="width:100%;padding:10px;">
+    <button onclick="playRadio()">Play</button>
+  </div>
+</div>
+
+<!-- ABOUT -->
+<div id="about" class="section">
+  <div class="panel">
+    IPTV Player รองรับ m3u / m3u8 / mp4
+  </div>
+</div>
+
+<input type="file" id="upload" accept=".m3u" hidden>
+
+<script>
+let channels=[];
+let hls=null;
+const video=document.getElementById("video");
+
+/* NAV */
+function show(id){
+  document.querySelectorAll(".section").forEach(s=>s.classList.remove("active"));
+  document.getElementById(id).classList.add("active");
+}
+
+/* PLAY */
+function play(url){
+  if(hls){hls.destroy();}
+
+  if(url.includes(".m3u8") && Hls.isSupported()){
+    hls=new Hls();
+    hls.loadSource(url);
+    hls.attachMedia(video);
+  }else{
+    video.src=url;
+  }
+
+  video.play().catch(()=>{});
+}
+
+/* CHANNEL */
+function playChannel(ch){
+  document.getElementById("label").innerText=ch.name;
+  play(ch.url);
+}
+
+/* RADIO */
+function playRadio(){
+  play(document.getElementById("radioUrl").value);
+}
+
+/* RENDER */
+function render(){
+  let grid=document.getElementById("grid");
+  grid.innerHTML="";
+
+  channels.forEach(ch=>{
+    let d=document.createElement("div");
+    d.className="logo";
+    d.innerHTML=`
+      <img src="${ch.logo||'https://via.placeholder.com/80'}">
+      <span>${ch.name}</span>
+    `;
+    d.onclick=()=>playChannel(ch);
+    grid.appendChild(d);
+  });
+}
+
+/* PARSE */
+function parse(txt){
+  let lines=txt.split("\n");
+  let out=[],name="",logo="";
+
+  lines.forEach(l=>{
+    if(l.startsWith("#EXTINF")){
+      name=l.split(",").pop();
+      logo=(l.match(/tvg-logo="([^"]+)/)||[])[1];
+    }else if(l.startsWith("http")){
+      out.push({name,logo,url:l});
+    }
+  });
+  return out;
+}
+
+/* LOAD DEFAULT */
+async function loadDefault(){
+  try{
+    let r=await fetch("iptv.m3u");
+    let t=await r.text();
+    channels=parse(t);
+    render();
+    if(channels.length) playChannel(channels[0]);
+  }catch(e){
+    document.getElementById("label").innerText="No iptv.m3u";
+  }
+}
+
+/* UPLOAD */
+upload.onchange=e=>{
+  let f=e.target.files[0];
+  let reader=new FileReader();
+  reader.onload=()=>{
+    channels=parse(reader.result);
+    render();
+    if(channels.length) playChannel(channels[0]);
+  };
+  reader.readAsText(f);
+};
+
+/* FULL */
+function goFull(){
+  document.querySelector(".player").requestFullscreen();
+}
+
+/* PiP */
+async function pip(){
+  try{
+    if(document.pictureInPictureElement){
+      await document.exitPictureInPicture();
+    }else{
+      await video.requestPictureInPicture();
+    }
+  }catch(e){}
+}
+
+/* INIT */
+loadDefault();
+</script>
+
+</body>
+</html>
